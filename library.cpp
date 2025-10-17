@@ -365,6 +365,170 @@ Matrix *Matrix::LUdecomposition(){
 	return 0;
 }
 
+Matrix *Matrix::SVD(){
+	int minDim = (r < c) ? r : c;
+	int maxDim = (r > c) ? r : c;
+	
+	Matrix *result = new Matrix[3]{Matrix(r, minDim, false), Matrix(minDim, c, false), Matrix(c, c, false)};
+	Matrix &U = result[0];
+	Matrix &S = result[1];
+	Matrix &V = result[2];
+	
+	Matrix AtA(c, c, false);
+	
+	for(int i=0; i<c; i++){
+		for(int j=0; j<c; j++){
+			AtA.m[i][j] = 0;
+			for(int k=0; k<r; k++){
+				AtA.m[i][j] += m[k][i] * m[k][j];
+			}
+		}
+	}
+	
+	for(int i=0; i<c; i++){
+		for(int j=0; j<c; j++){
+			V.m[i][j] = (i==j) ? 1.0 : 0.0;
+		}
+	}
+	
+	int maxIter = 100;
+	float tolerance = 1e-10;
+	
+	for(int iter=0; iter<maxIter; iter++){
+		float maxVal = 0;
+		int p=0, q=1;
+		
+		for(int i=0; i<c; i++){
+			for(int j=i+1; j<c; j++){
+				if(fabs(AtA.m[i][j]) > maxVal){
+					maxVal = fabs(AtA.m[i][j]);
+					p = i;
+					q = j;
+				}
+			}
+		}
+		
+		if(maxVal < tolerance) break;
+		
+		float theta;
+		if(fabs(AtA.m[p][p] - AtA.m[q][q]) < tolerance){
+			theta = M_PI / 4.0;
+		} else {
+			theta = 0.5 * atan(2.0 * AtA.m[p][q] / (AtA.m[p][p] - AtA.m[q][q]));
+		}
+		
+		float c_val = cos(theta);
+		float s_val = sin(theta);
+		
+		float temp[100][100];
+		for(int i=0; i<c; i++){
+			for(int j=0; j<c; j++){
+				temp[i][j] = AtA.m[i][j];
+			}
+		}
+		
+		for(int i=0; i<c; i++){
+			if(i != p && i != q){
+				AtA.m[p][i] = c_val * temp[p][i] + s_val * temp[q][i];
+				AtA.m[i][p] = AtA.m[p][i];
+				AtA.m[q][i] = -s_val * temp[p][i] + c_val * temp[q][i];
+				AtA.m[i][q] = AtA.m[q][i];
+			}
+		}
+		
+		AtA.m[p][p] = c_val * c_val * temp[p][p] + 2.0 * c_val * s_val * temp[p][q] + s_val * s_val * temp[q][q];
+		AtA.m[q][q] = s_val * s_val * temp[p][p] - 2.0 * c_val * s_val * temp[p][q] + c_val * c_val * temp[q][q];
+		AtA.m[p][q] = 0;
+		AtA.m[q][p] = 0;
+		
+		float tempV[100][100];
+		for(int i=0; i<c; i++){
+			for(int j=0; j<c; j++){
+				tempV[i][j] = V.m[i][j];
+			}
+		}
+		
+		for(int i=0; i<c; i++){
+			V.m[i][p] = c_val * tempV[i][p] + s_val * tempV[i][q];
+			V.m[i][q] = -s_val * tempV[i][p] + c_val * tempV[i][q];
+		}
+	}
+	
+	float eigenvalues[100];
+	for(int i=0; i<c; i++){
+		eigenvalues[i] = AtA.m[i][i];
+	}
+	
+	int indices[100];
+	for(int i=0; i<c; i++) indices[i] = i;
+	
+	for(int i=0; i<c-1; i++){
+		for(int j=i+1; j<c; j++){
+			if(eigenvalues[indices[i]] < eigenvalues[indices[j]]){
+				int temp = indices[i];
+				indices[i] = indices[j];
+				indices[j] = temp;
+			}
+		}
+	}
+	
+	Matrix Vsorted(c, c, false);
+	float sortedEigenvalues[100];
+	for(int i=0; i<c; i++){
+		sortedEigenvalues[i] = eigenvalues[indices[i]];
+		for(int j=0; j<c; j++){
+			Vsorted.m[j][i] = V.m[j][indices[i]];
+		}
+	}
+	
+	for(int i=0; i<minDim; i++){
+		for(int j=0; j<c; j++){
+			S.m[i][j] = 0;
+		}
+		if(i < c){
+			S.m[i][i] = sqrt(fabs(sortedEigenvalues[i]));
+		}
+	}
+	
+	for(int i=0; i<minDim; i++){
+		float sigma = S.m[i][i];
+		if(sigma > tolerance){
+			for(int j=0; j<r; j++){
+				U.m[j][i] = 0;
+				for(int k=0; k<c; k++){
+					U.m[j][i] += m[j][k] * Vsorted.m[k][i];
+				}
+				U.m[j][i] /= sigma;
+			}
+		} else {
+			for(int j=0; j<r; j++){
+				U.m[j][i] = (i < r && j == i) ? 1.0 : 0.0;
+			}
+		}
+	}
+	
+	cout<<"U Matrix ("<<r<<"x"<<minDim<<"):"<<endl;
+	U.printMatrix();
+	cout<<endl;
+	
+	cout<<"Sigma Matrix ("<<minDim<<"x"<<c<<"):"<<endl;
+	S.printMatrix();
+	cout<<endl;
+	
+	cout<<"V Transpose Matrix ("<<c<<"x"<<c<<"):"<<endl;
+	Matrix Vt(c, c, false);
+	for(int i=0; i<c; i++){
+		for(int j=0; j<c; j++){
+			Vt.m[i][j] = Vsorted.m[j][i];
+		}
+	}
+	Vt.printMatrix();
+	cout<<endl;
+	
+	return result;
+}
+
+
 
 int Matrix::isIdempotent(){
 	Matrix mat(r,c);
@@ -527,31 +691,19 @@ int Matrix::isInvertible()
 // driver code
 int main()
 {
-	Matrix m(4,4);
-	cout<<"\n";
+	cout<<"Enter matrix dimensions (rows cols):"<<endl;
+	int rows, cols;
+	cin >> rows >> cols;
+	
+	cout<<"Enter matrix elements:"<<endl;
+	Matrix m(rows, cols);
+	cout<<"\nOriginal Matrix:"<<endl;
 	m.printMatrix();
 	cout<<"\n";
 
-    Matrix resu = m.addition();
-    resu.printMatrix();
-    cout<<"\n";
-
-    resu = m.subtraction();
-    resu.printMatrix();
-    cout<<"\n";
-
-
-	Matrix out=m.transpose();
-	out.printMatrix();
-	cout<<"\n";
-
-    cout<<"gauss";
-	int *y=m.gaussElimination();
-	m.printMatrix();
-	cout<<"\n";
-
-	Matrix out1=m.columnSpace();
-	out1.printMatrix();
-
+	cout<<"Performing SVD..."<<endl;
+	Matrix *svd_result = m.SVD();
+	
 	return 0;
 }
+
