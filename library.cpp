@@ -3,6 +3,8 @@
 #include <cmath>
 using namespace std;
 
+#define EPS 1e-6f
+
 class Matrix
 {
 	public:
@@ -138,6 +140,125 @@ class Matrix
 			return result;
 		};
 };
+
+Matrix Matrix::nullSpace()
+{
+    // Null space of an r x c matrix A: solve A x = 0
+    // Returned Matrix has 'c' rows and 'k' columns where k = dimension of nullspace.
+    if (r <= 0 || c <= 0) {
+        std::cout << "Invalid matrix dimensions for nullSpace().\n";
+        return Matrix(1,1,false);
+    }
+
+    // Work on a copy (float tmp[r][c])
+    float tmp[100][100];
+    for (int i = 0; i < r; ++i)
+        for (int j = 0; j < c; ++j)
+            tmp[i][j] = m[i][j];
+
+    // pivot_row_for_col[j] = row index where column j has its pivot (or -1 if free)
+    int pivot_row_for_col[100];
+    for (int j = 0; j < c; ++j) pivot_row_for_col[j] = -1;
+
+    int row = 0;
+    for (int col = 0; col < c && row < r; ++col) {
+        // find pivot in [row..r-1] for this column
+        int sel = -1;
+        float maxabs = 0.0f;
+        for (int i = row; i < r; ++i) {
+            float aval = fabsf(tmp[i][col]);
+            if (aval > maxabs) { maxabs = aval; sel = i; }
+        }
+
+        if (sel == -1 || maxabs < EPS) {
+            // no pivot in this column -> free column
+            continue;
+        }
+
+        // swap sel row with current row if needed
+        if (sel != row) {
+            for (int j = col; j < c; ++j) { // swapping only needed columns from current col is enough
+                float t = tmp[sel][j];
+                tmp[sel][j] = tmp[row][j];
+                tmp[row][j] = t;
+            }
+        }
+
+        // normalize pivot row (make pivot = 1)
+        float pivot_val = tmp[row][col];
+        if (fabsf(pivot_val - 1.0f) > EPS) {
+            for (int j = col; j < c; ++j)
+                tmp[row][j] /= pivot_val;
+        }
+
+        // eliminate this column in all other rows (Gauss-Jordan)
+        for (int i = 0; i < r; ++i) {
+            if (i == row) continue;
+            float factor = tmp[i][col];
+            if (fabsf(factor) > EPS) {
+                for (int j = col; j < c; ++j)
+                    tmp[i][j] -= factor * tmp[row][j];
+            }
+        }
+
+        pivot_row_for_col[col] = row;
+        row++;
+    }
+
+    // Determine free columns
+    bool is_pivot_col[100];
+    for (int j = 0; j < c; ++j) is_pivot_col[j] = (pivot_row_for_col[j] != -1);
+
+    int free_count = 0;
+    int free_cols[100];
+    for (int j = 0; j < c; ++j) {
+        if (!is_pivot_col[j]) {
+            free_cols[free_count++] = j;
+        }
+    }
+
+    // If nullspace is {0} (no free variables), return a single zero vector column
+    if (free_count == 0) {
+        Matrix res(c, 1, false);
+        for (int i = 0; i < c; ++i) res.m[i][0] = 0.0f;
+        return res;
+    }
+
+    // Build basis vectors: for each free variable set it = 1 and others free = 0,
+    // solve for pivot variables from RREF rows: pivot_var = - sum( row_coeff * free_var )
+    Matrix basis(c, free_count, false); // each column is a basis vector (length c)
+
+    for (int k = 0; k < free_count; ++k) {
+        int free_col = free_cols[k];
+
+        // initialize solution vector x (size c) to zeros
+        float x[100];
+        for (int j = 0; j < c; ++j) x[j] = 0.0f;
+
+        // set the free variable to 1
+        x[free_col] = 1.0f;
+
+        // For each pivot column, compute its variable value using the pivot row
+        // In RREF, pivot row pivot_col has 1 at pivot and coefficients for free columns
+        for (int col = 0; col < c; ++col) {
+            int prow = pivot_row_for_col[col];
+            if (prow == -1) continue; // skip free columns
+            // pivot variable x[col] = - sum_{j free} (tmp[prow][j] * x[j])
+            float sum = 0.0f;
+            for (int jj = 0; jj < free_count; ++jj) {
+                int fj = free_cols[jj];
+                // tmp[prow][fj] should be the coefficient of free var in pivot row
+                if (fabsf(tmp[prow][fj]) > EPS) sum += tmp[prow][fj] * x[fj];
+            }
+            x[col] = -sum;
+        }
+
+        // store x as column k of basis
+        for (int i = 0; i < c; ++i) basis.m[i][k] = x[i];
+    }
+
+    return basis;
+}
 
 int* Matrix::eigenValues() {
     static int result[3];
